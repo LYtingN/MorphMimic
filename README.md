@@ -77,7 +77,27 @@ CUDA 12.9 (575 or newer) work.
 
 ## Data
 
-### MD robot_trainer: 16 GPUs on Baidu 4090
+### MD robot_trainer: 12 A800 GPUs with pelvis and hand targets
+
+Use [`configs/jobs/morphmimic_baidu_bj_a800_12gpu_3point.yaml`](configs/jobs/morphmimic_baidu_bj_a800_12gpu_3point.yaml)
+for `baidu_bj_a800`, with 12 workers and the existing 143-clip basic-motion dataset.
+The three control targets are **pelvis, left wrist and right wrist** (the hand end
+effectors, represented by `left_wrist_yaw_link` and `right_wrist_yaw_link`).
+`--kp-masking upper` selects these three points throughout keypoint collection
+and imagined-policy updates. The two ankle target slots are zeroed before entering
+the keypoint encoder. The existing full-motion teacher and whole-body tracking
+reward remain the supervision for balance and lower-body behavior. Evaluation and
+deployment of this model must also select the `upper` point mask.
+
+This profile uses 4,096 environments per GPU (49,152 total), 2,048 world-model
+samples per worker and 4,096 imagined starts per interface. The effective learning
+rates match the original 8-A800 run after world-size scaling. It trains for 100,000
+iterations and saves every 1,000. A800 RoCE/IB communication uses the platform's
+HCA and GID defaults. Data mounts, logs, image and dependency handling follow the
+cluster entrypoint described below. The dry-run output records the active point
+names and count. Preparing this YAML does not submit or start training.
+
+### MD robot_trainer: previous 16-GPU Baidu 4090 profile
 
 The submission configuration is
 [`configs/jobs/morphmimic_baidu_bj_4090_16gpu.yaml`](configs/jobs/morphmimic_baidu_bj_4090_16gpu.yaml).

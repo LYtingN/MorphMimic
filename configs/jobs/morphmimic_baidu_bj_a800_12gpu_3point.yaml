@@ -1,0 +1,92 @@
+config_version: 1
+cluster: baidu_bj_a800
+num_gpus: 12
+image: ai-base:ubuntu22.04-sim5.0.0-lab_MD2.2.1-ray2.52.0-cu12.8_devel-v2.0
+
+git_workspace:
+  repos:
+    - repo_url: https://github.com/LYtingN/MorphMimic.git
+      # Pinned to the validated implementation before publication.
+      commit_sha: main
+
+pip_packages:
+  - --extra-index-url https://download.pytorch.org/whl/cu128
+  - torch==2.11.0+cu128
+  - torchvision==0.26.0+cu128
+  - numpy==1.26.4
+  - mjlab==1.6.0
+  - mujoco==3.11.0
+  - mujoco-warp==3.11.0
+  - warp-lang==1.17.0
+pip_directories:
+  - .
+py_paths:
+  - src
+log_folder: logs
+
+experiment_name: morphmimic-g1-basic-threepoint
+run_name: g1-threepoint-bj-a800-12gpu-100k
+
+tasks:
+  - name: MorphMimic-G1-ThreePoint-Pelvis-Hands
+    type: robot_trainer
+    entry: morphmimic.scripts.train_cluster
+    args:
+      - --expected-world-size
+      - "12"
+      - --robot
+      - g1
+      - --subset-yaml
+      - configs/data/nyx_g1_basic.yaml
+      # Restore the original A800 per-device environment and update batch sizes.
+      - --num-envs
+      - "4096"
+      - --wm-batch
+      - "2048"
+      - --imag-batch
+      - "4096"
+      - --kp-imag-batch
+      - "4096"
+      # sqrt(12) scaling preserves the effective LR of the original 8-A800 run.
+      - --wm-lr
+      - "0.00016329931618554522"
+      - --policy-lr
+      - "0.00016329931618554522"
+      - --critic-lr
+      - "0.00016329931618554522"
+      - --iterations
+      - "100000"
+      - --lr-decay-iters
+      - "100000"
+      - --kp-interface
+      # Dedicated three-point actor: pelvis, left wrist, right wrist.
+      # The two ankle target slots are masked out during collection and training.
+      - --kp-masking
+      - upper
+      - --kp-env-frac
+      - "0.5"
+      - --library-dtype
+      - float32
+      - --compile
+      - default
+      - --ckpt-every
+      - "1000"
+      - --log-every
+      - "25"
+
+os_env_vars:
+  MORPHMIMIC_DATA_ROOT: /data/nas_ray/home/eason.er/nyx/logs
+  MUJOCO_GL: disable
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "4"
+  MKL_NUM_THREADS: "4"
+  OPENBLAS_NUM_THREADS: "1"
+  TORCHINDUCTOR_COMPILE_THREADS: "1"
+  XDG_CACHE_HOME: /tmp/morphmimic-cache
+  TORCHINDUCTOR_CACHE_DIR: /tmp/morphmimic-cache/torchinductor
+  WANDB_MODE: offline
+  NCCL_DEBUG: WARN
+  NCCL_SOCKET_IFNAME: eth0
+  GLOO_SOCKET_IFNAME: eth0
+  # A800 uses the platform's RoCE/IB configuration and HCA/GID defaults.
+  NCCL_IB_DISABLE: "0"

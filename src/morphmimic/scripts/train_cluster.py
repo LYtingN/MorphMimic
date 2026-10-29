@@ -18,6 +18,7 @@ from typing import Mapping
 import tyro
 import yaml
 
+from morphmimic.constants import KP_NAMES, KP_UPPER
 from morphmimic.scripts.train import TrainArgs, explicit_fields, run
 from morphmimic.train.trainer import TrainCfg
 
@@ -64,15 +65,26 @@ def prepare_run(args: ClusterArgs, env: Mapping[str, str]):
     run_dir = Path(platform_dir).expanduser().resolve()
     cfg = replace(cfg, log_dir=str(run_dir.parent), run_name=run_dir.name)
   else:
-    cfg = replace(cfg, run_name=cfg.run_name or "morphmimic-g1-basic-16gpu")
+    cfg = replace(cfg, run_name=cfg.run_name or f"morphmimic-g1-basic-{world}gpu")
     run_dir = Path(cfg.log_dir).expanduser().resolve() / cfg.run_name
   lr_scale = math.sqrt(world) if cfg.lr_scale_sqrt_world_size else 1.
+  tracking_points = []
+  if cfg.kp_interface:
+    if cfg.kp_masking == "upper":
+      tracking_points = [name for name, visible in zip(KP_NAMES, KP_UPPER) if visible]
+    elif cfg.kp_masking == "full":
+      tracking_points = list(KP_NAMES)
+    else:
+      tracking_points = None  # Mixed mode samples a different subset per rollout.
   plan = {"dry_run": args.dry_run, "rank": rank, "world_size": world,
           "local_rank": local, "cuda_visible_devices": env.get("CUDA_VISIBLE_DEVICES"),
           "master_addr": env["MASTER_ADDR"], "master_port": int(env["MASTER_PORT"]),
           "source_manifest": str(source_path), "dataset_root": str(root),
           "dataset_clips": len(clips), "dataset_hours": subset.get("hours"),
           "iterations": cfg.iterations, "envs_per_gpu": cfg.num_envs,
+          "keypoint_masking": cfg.kp_masking if cfg.kp_interface else None,
+          "tracking_points": tracking_points,
+          "tracking_point_count": len(tracking_points) if tracking_points is not None else None,
           "total_envs": cfg.num_envs * world,
           "global_wm_batch": cfg.wm_batch * world,
           "global_imag_batch": cfg.imag_batch * world,

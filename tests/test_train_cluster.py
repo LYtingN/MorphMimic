@@ -98,6 +98,29 @@ class ClusterTests(unittest.TestCase):
     self.assertEqual(args.ckpt_every, 1000)
     self.assertAlmostEqual(args.policy_lr * 4, 2e-4 * 8**.5)
 
+  def test_a800_twelve_gpu_profile_uses_three_hand_tracking_points(self):
+    repo = Path(__file__).resolve().parents[1]
+    job = yaml.safe_load((repo / "configs/jobs/morphmimic_baidu_bj_a800_12gpu_3point.yaml").read_text())
+    task = job["tasks"][0]
+    args = tyro.cli(cluster.ClusterArgs, args=task["args"])
+    self.assertEqual(job["cluster"], "baidu_bj_a800")
+    self.assertEqual(job["num_gpus"], 12)
+    self.assertEqual(args.expected_world_size, 12)
+    self.assertEqual(args.num_envs, 4096)
+    self.assertTrue(args.kp_interface)
+    self.assertEqual(args.kp_masking, "upper")
+    self.assertIsNone(args.gpu_ids)
+    self.assertIsNone(args.resume)
+    self.assertEqual(args.iterations, 100000)
+    self.assertEqual(args.ckpt_every, 1000)
+    self.assertAlmostEqual(args.policy_lr * 12**.5, 2e-4 * 8**.5)
+    self.assertEqual(job["os_env_vars"]["NCCL_IB_DISABLE"], "0")
+    args.subset_yaml = str(self.manifest)
+    _, _, plan = cluster.prepare_run(args, {**self.env, "WORLD_SIZE": "12"})
+    self.assertEqual(plan["total_envs"], 49152)
+    self.assertEqual(plan["tracking_points"], ["pelvis", "left_wrist", "right_wrist"])
+    self.assertEqual(plan["tracking_point_count"], 3)
+
 
 if __name__ == "__main__":
   unittest.main()
