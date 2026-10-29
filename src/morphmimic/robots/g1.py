@@ -41,5 +41,5 @@ def g1_spec() -> RobotSpec:
     translator=Translator.identity(len(JOINT_NAMES)),
     csv_joint_columns=SEED_CSV_JOINT_COLUMNS,
     height_scale=1.0,
-    contact_budget=(35, 250),
+    contact_budget=(35, 512),
   )

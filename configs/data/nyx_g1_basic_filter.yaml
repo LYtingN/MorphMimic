@@ -1,0 +1,17 @@
+# Conservative first-stage G1 training; whole clips are included or excluded.
+version: 1
+exclude_jumps_and_kicks: true
+minimum_clip_seconds: 1.0
+maximum_tilt_degrees: 60.0
+minimum_excessive_tilt_seconds: 0.2
+minimum_pelvis_height_m: 0.4
+minimum_low_pelvis_seconds: 0.2
+maximum_both_ankles_height_m: 0.12
+minimum_raised_ankles_seconds: 0.3
+name_rules:
+  acrobatics: '\b(handstands?|headstands?|cartwheels?|somersaults?|backflips?|frontflips?|flips?|acrobatics?|parkour|breakdance|backbend)\b'
+  floor_motion: '\b(fall(?:s|ing)?\d*|get up|roll(?:s|ing)?|crawl(?:s|ing)?|all fours|kneel(?:s|ing)?|lying|lie|prone|supine|postmortem|convulsions?|ground)\b'
+  deep_posture: '\b(crouch(?:ing)?|squats?|stoop|toe touchers?)\b'
+  injured_gait: '\b(injured|inj)\b'
+  combat_or_sprint: '\b(fight\d*|fighting|sports?\d*|sprint\d*)\b'
+  jumps_and_kicks: '\b(jumps?\d*|jumping|kicks?|kicking|hops?|hopping|leaps?|leaping)\b'

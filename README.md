@@ -67,7 +67,7 @@ deploy/
 You need an NVIDIA GPU for training and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone --recursive git@github.com:lzyang2000/morphmimic.git && cd morphmimic
+git clone --recursive https://github.com/LYtingN/MorphMimic.git && cd MorphMimic
 uv sync                                   # Python 3.11, mjlab 1.6.0, torch (cu128)
 uv sync --group export --group teleop     # adds onnxruntime, pyzmq and GMR for deployment
 ```
@@ -76,6 +76,51 @@ uv sync --group export --group teleop     # adds onnxruntime, pyzmq and GMR for 
 CUDA 12.9 (575 or newer) work.
 
 ## Data
+
+### MD robot_trainer: 16 GPUs on Baidu 4090
+
+The submission configuration is
+[`configs/jobs/morphmimic_baidu_bj_4090_16gpu.yaml`](configs/jobs/morphmimic_baidu_bj_4090_16gpu.yaml).
+It uses the `ai-base:ubuntu22.04-sim5.0.0-lab_MD2.2.1-ray2.52.0-cu12.8_devel-v2.0`
+image and the `robot_trainer` task with entry module
+`morphmimic.scripts.train_cluster`. Submit this YAML through the MD platform when
+you are ready to start training. Preparing or pushing the repository does not
+submit a job.
+
+The platform provides `RANK`, `WORLD_SIZE`, `LOCAL_RANK`, `CUDA_VISIBLE_DEVICES`
+and the NCCL rendezvous address. The entrypoint preserves its GPU allocation and
+supports multiple nodes as well as workers exposing only one CUDA device. Do not
+add a second `torchrun` launcher or a global `--gpu-ids 0 ... 15` argument.
+
+The dataset mount is controlled by `os_env_vars.MORPHMIMIC_DATA_ROOT`. It must
+contain `npz/lafan1/` and `bones_seed/npz/` on every worker node. The committed
+[`configs/data/nyx_g1_basic.yaml`](configs/data/nyx_g1_basic.yaml) selects the existing
+143-clip basic-motion subset; the subsequent temporal/soft-limit review candidates
+have not been applied automatically. Raw motion files, checkpoints and videos are
+not part of the Git repository. Missing files stop the entrypoint before training.
+
+The original 240-clip selection is retained as
+[`configs/data/nyx_g1_all.yaml`](configs/data/nyx_g1_all.yaml). To reproduce the
+basic subset, run `python -m morphmimic.scripts.filter_training_motions` with
+`--source-subset configs/data/nyx_g1_all.yaml`,
+`--policy configs/data/nyx_g1_basic_filter.yaml`,
+`--output configs/data/nyx_g1_basic.yaml`, and a separate `--report-dir`.
+
+The configuration uses 1,024 simulated environments per GPU, 1,024 world-model
+samples and 2,048 imagined starts per interface. With 16 workers, the global update
+batches match the previous 8-GPU setup. Base learning rates are adjusted so their
+world-size scaling preserves the previous effective rates. Training runs for
+100,000 iterations and saves every 1,000 iterations. These are conservative memory
+settings for 24 GiB cards; actual 4090 peak memory and throughput require a cluster
+run. Training outputs and the resolved data manifest go under `MD_RUN_LOG_DIR`.
+
+The entrypoint's `--dry-run` option checks its configuration and data paths without
+initializing CUDA, creating a process group or starting training. Run it inside a
+worker environment, or supply the distributed environment variables for a local
+CPU configuration check. Set `MORPHMIMIC_DATA_ROOT` to the mounted dataset root and
+pass the arguments from the job's `tasks[0].args` together with `--dry-run`.
+
+### Reference motion datasets
 
 Training uses the [BONES-SEED](https://huggingface.co/datasets/bones-studio/seed)
 motion dataset. The commands below use `$DATA` for wherever you keep it.

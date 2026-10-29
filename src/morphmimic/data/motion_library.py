@@ -97,7 +97,7 @@ class MotionLibrary:
     lengths = []
     for path in tqdm(clip_paths, desc="motion library", disable=len(clip_paths) <= 100):
       with np.load(path) as z:
-        fps = int(z["fps"])
+        fps = int(np.asarray(z["fps"]).item())
         if fps != FPS:
           raise ValueError(f"{path}: fps {fps}, expected {FPS}.")
         names = [str(n) for n in z["body_names"]]

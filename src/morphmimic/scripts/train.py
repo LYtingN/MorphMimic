@@ -19,6 +19,10 @@ with --no-lr-scale-sqrt-world-size). Rank 0 prints the log lines (metrics pooled
 the ranks) and writes the run dir; every rank's output is also kept under
 <run_dir>/torchrunx/. --resume loads the checkpoint on every rank.
 
+External torchrun and robot_trainer workers enter run() directly using RANK,
+LOCAL_RANK and WORLD_SIZE. Their CUDA_VISIBLE_DEVICES allocation is preserved;
+--gpu-ids selects devices only when this script launches its own workers.
+
 Multi-robot (one robot per GPU): --robots g1 x2 t2
 --subset-yamls <g1> <x2> <t2> --gpu-ids "[a,b,c]" --share wm|all|policy; rank r simulates
 robots[r] on subset_yamls[r] (--robot and --subset-yaml are ignored), the world model
@@ -57,6 +61,27 @@ from morphmimic.train.trainer import TrainCfg, Trainer
 # Collective timeout of a data-parallel run: generous, since the ranks compile their
 # CUDA graphs independently during the first iterations (minutes each).
 PROCESS_GROUP_TIMEOUT = timedelta(minutes=30)
+
+
+def local_cuda_index(local_rank: int) -> int:
+  """Map a scheduler's local rank into its allocated visible CUDA devices.
+
+  robot_trainer shares a node's allocated devices across its workers. Some Ray
+  launchers expose just one device to each process, which is always cuda:0.
+  """
+  if local_rank < 0:
+    raise ValueError("LOCAL_RANK must be non-negative")
+  visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+  if visible is None:
+    return local_rank
+  devices = [device.strip() for device in visible.split(",") if device.strip()]
+  if not devices:
+    raise ValueError("The distributed worker has no visible CUDA devices")
+  if len(devices) == 1:
+    return 0
+  if local_rank >= len(devices):
+    raise ValueError(f"LOCAL_RANK={local_rank} exceeds the allocated CUDA devices: {visible}")
+  return local_rank
 
 
 def _parse_gpu_ids(args: list[str]) -> list[int] | None:
@@ -138,14 +163,15 @@ def run(
   MuJoCo's EGL) and joins the NCCL process group. Rank r seeds with `cfg.seed + r`.
   `explicit`: the cfg fields the command line names (`explicit_fields`), passed to
   `Trainer.load` on resume."""
-  rank = local_rank = 0
+  rank = local_rank = device_index = 0
   if distributed:
     rank, local_rank = int(os.environ["RANK"]), int(os.environ["LOCAL_RANK"])
-    os.environ["MUJOCO_EGL_DEVICE_ID"] = str(local_rank)
-    torch.cuda.set_device(local_rank)
+    device_index = local_cuda_index(local_rank)
+    os.environ["MUJOCO_EGL_DEVICE_ID"] = str(device_index)
+    torch.cuda.set_device(device_index)
     dist.init_process_group(
       backend="nccl",
-      device_id=torch.device("cuda", local_rank),
+      device_id=torch.device("cuda", device_index),
       timeout=PROCESS_GROUP_TIMEOUT,
     )
   try:
@@ -154,7 +180,7 @@ def run(
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    trainer = Trainer(cfg, f"cuda:{local_rank}")
+    trainer = Trainer(cfg, f"cuda:{device_index}")
     try:
       if resume is not None:
         path = resume
@@ -186,7 +212,8 @@ def run(
       elif distributed and trainer.is_main:
         print(
           f"[morphmimic] data parallel: {trainer.world_size} ranks x {cfg.num_envs}"
-          f" envs on GPUs {cfg.gpu_ids}; lr x{trainer.lr_scale:.4f}",
+          f" envs; local visible GPUs {os.environ.get('CUDA_VISIBLE_DEVICES', 'all')};"
+          f" lr x{trainer.lr_scale:.4f}",
           flush=True,
         )
       trainer.train()
@@ -229,13 +256,20 @@ def launch(cfg: TrainCfg, resume: str | None, explicit: Collection[str] = ()) ->
 def main() -> None:
   args = tyro.cli(TrainArgs)
   gpus = args.gpu_ids if args.gpu_ids is not None else [args.gpu]
-  select_gpus(gpus, args.allow_any_gpu)
   cfg = TrainCfg(**{f.name: getattr(args, f.name) for f in fields(TrainCfg)})
   explicit = explicit_fields(sys.argv[1:])
-  if len(gpus) > 1:
-    launch(cfg, args.resume, explicit)
+  external_worker = all(key in os.environ for key in ("RANK", "LOCAL_RANK", "WORLD_SIZE"))
+  if external_worker:
+    # A global world size may exceed the GPUs on one node. The scheduler owns
+    # device selection, so a local physical-GPU list is not a global rank list.
+    cfg = replace(cfg, gpu_ids=None)
+    run(cfg, args.resume, distributed=True, explicit=explicit)
   else:
-    run(cfg, args.resume, explicit=explicit)
+    select_gpus(gpus, args.allow_any_gpu)
+    if len(gpus) > 1:
+      launch(cfg, args.resume, explicit)
+    else:
+      run(cfg, args.resume, explicit=explicit)
 
 
 if __name__ == "__main__":

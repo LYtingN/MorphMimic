@@ -1,0 +1,91 @@
+config_version: 1
+cluster: baidu_bj_4090
+num_gpus: 16
+image: ai-base:ubuntu22.04-sim5.0.0-lab_MD2.2.1-ray2.52.0-cu12.8_devel-v2.0
+
+git_workspace:
+  repos:
+    - repo_url: https://github.com/LYtingN/MorphMimic.git
+      # Replaced with the tested implementation commit before publication.
+      commit_sha: main
+
+# Keep CUDA 12.8 wheels and a NumPy 1.x ABI in the Ray image's overlay environment.
+pip_packages:
+  - --extra-index-url https://download.pytorch.org/whl/cu128
+  - torch==2.11.0+cu128
+  - numpy==1.26.4
+  - mjlab==1.6.0
+  - mujoco==3.11.0
+  - mujoco-warp==3.11.0
+  - warp-lang==1.17.0
+pip_directories:
+  - .
+py_paths:
+  - src
+log_folder: logs
+
+experiment_name: morphmimic-g1-basic
+run_name: g1-fivepoint-baidu4090-16gpu-100k
+
+tasks:
+  - name: MorphMimic-G1-FivePoint-Basic
+    type: robot_trainer
+    entry: morphmimic.scripts.train_cluster
+    args:
+      - --expected-world-size
+      - "16"
+      - --robot
+      - g1
+      - --subset-yaml
+      - configs/data/nyx_g1_basic.yaml
+      # 16 x 1024 simulated environments; reduce per-device memory for 24 GiB cards.
+      - --num-envs
+      - "1024"
+      - --wm-batch
+      - "1024"
+      - --imag-batch
+      - "2048"
+      - --kp-imag-batch
+      - "2048"
+      # Match the previous 8-card global update batches and effective learning rates.
+      - --wm-lr
+      - "0.0001414213562373095"
+      - --policy-lr
+      - "0.0001414213562373095"
+      - --critic-lr
+      - "0.0001414213562373095"
+      - --iterations
+      - "100000"
+      - --lr-decay-iters
+      - "100000"
+      - --kp-interface
+      - --kp-masking
+      - full
+      - --kp-env-frac
+      - "0.5"
+      - --library-dtype
+      - float32
+      - --compile
+      - default
+      - --ckpt-every
+      - "1000"
+      - --log-every
+      - "25"
+
+os_env_vars:
+  # Dataset is mounted separately; no NPZ data or weights are stored in Git.
+  MORPHMIMIC_DATA_ROOT: /data/nas_ray/home/eason.er/nyx/logs
+  MUJOCO_GL: disable
+  PYTHONUNBUFFERED: "1"
+  OMP_NUM_THREADS: "4"
+  MKL_NUM_THREADS: "4"
+  OPENBLAS_NUM_THREADS: "1"
+  TORCHINDUCTOR_COMPILE_THREADS: "1"
+  XDG_CACHE_HOME: /tmp/morphmimic-cache
+  TORCHINDUCTOR_CACHE_DIR: /tmp/morphmimic-cache/torchinductor
+  WANDB_MODE: offline
+  NCCL_DEBUG: WARN
+  NCCL_SOCKET_IFNAME: eth0
+  GLOO_SOCKET_IFNAME: eth0
+  # Matches the Baidu 4090 platform template: use sockets across nodes, not RoCE.
+  NCCL_IB_DISABLE: "1"
