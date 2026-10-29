@@ -6,8 +6,8 @@ image: ai-base:ubuntu22.04-sim5.0.0-lab_MD2.2.1-ray2.52.0-cu12.8_devel-v2.0
 git_workspace:
   repos:
     - repo_url: https://github.com/LYtingN/MorphMimic.git
-      # Pinned to the validated implementation before publication.
-      commit_sha: main
+      # Pinned training implementation for the dedicated pelvis-and-hands actor.
+      commit_sha: a6d8e5a7069eb44b4cd9ca1c9d702997672819a8
 
 pip_packages:
   - --extra-index-url https://download.pytorch.org/whl/cu128
